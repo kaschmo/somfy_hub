@@ -109,6 +109,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
         for(int i = 0; i<2; i++) {
           SendCommand(frame, 7);
         }
+        sendSomfyStatus();
     }
     else if (!strcmp(cmnd, "reset")) {
         Serial.print("Received reset command");
@@ -135,17 +136,47 @@ void reconnect() {
     }
 }
 
+void sendSomfyStatus() {
+    char outTopic_status[50];
+    char msg[50];
+
+    //IP Address
+    strcpy(outTopic_status,outTopic);
+    strcat(outTopic_status,"ip_address");
+    WiFi.localIP().toString().toCharArray(msg,50);
+    client.publish(outTopic_status,msg ); 
+
+    //Rolling Code
+    strcpy(outTopic_status,outTopic);
+    strcat(outTopic_status,"rolling_code");
+    unsigned int code;
+    EEPROM.get(EEPROM_ADDRESS, code);
+    dtostrf(code,2,0,msg);
+    client.publish(outTopic_status,msg ); 
+
+    //Remote number
+    strcpy(outTopic_status,outTopic);
+    strcat(outTopic_status,"remote");
+    dtostrf(REMOTE,2,0,msg);
+    client.publish(outTopic_status,msg ); 
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.println("Somfy Hub booted");
   pinMode(PORT_TX,OUTPUT);
   //DDRD |= 1<<PORT_TX; // Pin 5 an output
   //PORTD &= !(1<<PORT_TX); // Pin 5 LOW
-  GPOS &= !(1<<PORT_TX);
+  //GPOS &= !(1<<PORT_TX);
+  //GPOC = 1<<PORT_TX;
+  digitalWrite(PORT_TX,0);
 
+  EEPROM.begin(512); //added Smo
   if (EEPROM.get(EEPROM_ADDRESS, rollingCode) < newRollingCode) {
+    //Achtung der Check ist shit. wenn ich einen neuen Rolling Code wähle muss ich neu initaliisueren mit größer als new Rolling Code!
     EEPROM.put(EEPROM_ADDRESS, newRollingCode);
   }
+  //EEPROM.put(EEPROM_ADDRESS, newRollingCode); //only needed ONCE for init of EEPROM.
   Serial.print("Simulated remote number : "); Serial.println(REMOTE, HEX);
   Serial.print("Current rolling code    : "); Serial.println(rollingCode);
 
@@ -154,6 +185,7 @@ void setup() {
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
 
+    sendSomfyStatus();
 }
 
 void loop() {
@@ -161,13 +193,14 @@ void loop() {
         reconnect();
       }
       client.loop();
-  
+      
 }
 
 
 void BuildFrame(byte *frame, byte button) {
   unsigned int code;
   EEPROM.get(EEPROM_ADDRESS, code);
+  Serial.print("Sending w/ rolling code    : "); Serial.println(code);
   frame[0] = 0xA7; // Encryption key. Doesn't matter much
   frame[1] = button << 4;  // Which button did  you press? The 4 LSB will be the checksum
   frame[2] = code >> 8;    // Rolling code (big endian)
@@ -220,7 +253,7 @@ void BuildFrame(byte *frame, byte button) {
   Serial.println("");
   Serial.print("Rolling Code  : "); Serial.println(code);
   EEPROM.put(EEPROM_ADDRESS, code + 1); //  We store the value of the rolling code in the
-                                        // EEPROM. It should take up to 2 adresses but the
+  EEPROM.commit();                      // EEPROM. It should take up to 2 adresses but the
                                         // Arduino function takes care of it.
 }
 
@@ -228,29 +261,35 @@ void SendCommand(byte *frame, byte sync) {
   if(sync == 2) { // Only with the first frame.
   //Wake-up pulse & Silence
     //PORTD |= 1<<PORT_TX;
-    GPOS |= 1<<PORT_TX;
+    //GPOS |= 1<<PORT_TX; //wrong usage anyway
+    digitalWrite(PORT_TX,1);
     delayMicroseconds(9415);
     //PORTD &= !(1<<PORT_TX);
-    GPOS &= !(1<<PORT_TX);
+    //GPOS &= !(1<<PORT_TX);
+    digitalWrite(PORT_TX,0);
     delayMicroseconds(89565);
   }
 
 // Hardware sync: two sync for the first frame, seven for the following ones.
   for (int i = 0; i < sync; i++) {
     //PORTD |= 1<<PORT_TX;
-    GPOS |= 1<<PORT_TX;
+    //GPOS |= 1<<PORT_TX;
+    digitalWrite(PORT_TX,1);
     delayMicroseconds(4*SYMBOL);
     //PORTD &= !(1<<PORT_TX);
-    GPOS &= !(1<<PORT_TX);
+    //GPOS &= !(1<<PORT_TX);
+    digitalWrite(PORT_TX,0);
     delayMicroseconds(4*SYMBOL);
   }
 
 // Software sync
   //PORTD |= 1<<PORT_TX;
-  GPOS |= 1<<PORT_TX;
+  //GPOS |= 1<<PORT_TX;
+  digitalWrite(PORT_TX,1);
   delayMicroseconds(4550);
   //PORTD &= !(1<<PORT_TX);
-  GPOS &= !(1<<PORT_TX);
+  //GPOS &= !(1<<PORT_TX);
+  digitalWrite(PORT_TX,0);
   delayMicroseconds(SYMBOL);
   
   
@@ -258,23 +297,28 @@ void SendCommand(byte *frame, byte sync) {
   for(byte i = 0; i < 56; i++) {
     if(((frame[i/8] >> (7 - (i%8))) & 1) == 1) {
       //PORTD &= !(1<<PORT_TX);
-      GPOS &= !(1<<PORT_TX);
+      //GPOS &= !(1<<PORT_TX);
+      digitalWrite(PORT_TX,0);
       delayMicroseconds(SYMBOL);
       //PORTD ^= 1<<5;
-      GPOS ^= 1<<5;
+      //GPOS ^= 1<<5; //dont need to xor if I know state
+      digitalWrite(PORT_TX,1);
       delayMicroseconds(SYMBOL);
     }
     else {
       //PORTD |= (1<<PORT_TX);
-      GPOS |= (1<<PORT_TX);
+      //GPOS |= (1<<PORT_TX);
+      digitalWrite(PORT_TX,1);
       delayMicroseconds(SYMBOL);
       //PORTD ^= 1<<5;
-      GPOS ^= 1<<5;
+      //GPOS ^= 1<<5;
+      digitalWrite(PORT_TX,0);
       delayMicroseconds(SYMBOL);
     }
   }
   
   //PORTD &= !(1<<PORT_TX);
-  GPOS &= !(1<<PORT_TX);
+  //GPOS &= !(1<<PORT_TX);
+  digitalWrite(PORT_TX,0);
   delayMicroseconds(30415); // Inter-frame silence
 }
