@@ -1,19 +1,23 @@
 //Nickduino based somfy hub for ESP8266 and MQTT interface
-/*   This sketch allows you to emulate a Somfy RTS or Simu HZ remote.
-   If you want to learn more about the Somfy RTS protocol, check out https://pushstack.wordpress.com/somfy-rts-protocol/
+//https://github.com/Nickduino/Somfy_Remote
+// Emulates Somfy RTS remote for e.g. awning motors
+//Protocol details https://pushstack.wordpress.com/somfy-rts-protocol/
+//Rolling code will be stored in EEPROM
+//
+//Started
+//- chose remote number (or keep default)
+//- chose rolling code (or keep default)
+//- flash once with EEPROM overwrite in setup() activitad
+//- flash normal version w/o EEPROM overwrite
+//- Use actual Somfy remote to go into programming mode. Press button on back until awning jogs
+//- send "PROG" via MQTT (until awning confirms with jog)
+// 
+//MQTT Interface control: 
+//- cmnd/somfy_hub/control (UP, DOWN, PROG, STOP)
+//- cmnd/somfy_hub/rolling_code (code) to set new rolling code
+//MQTT Interface status: stat/somfy_hub/ip_address, rolling_code, remote
+// Schmolders 03.09.2017
    
-   The rolling code will be stored in EEPROM, so that you can power the Arduino off.
-   
-   Easiest way to make it work for you:
-    - Choose a remote number
-    - Choose a starting point for the rolling code. Any unsigned int works, 1 is a good start
-    - Upload the sketch
-    - Long-press the program button of YOUR ACTUAL REMOTE until your blind goes up and down slightly
-    - send 'p' to the serial terminal
-  To make a group command, just repeat the last two steps with another blind (one by one)
-  
-  See MQTT section for commands to issue ccontrol commands to somfy
-  */
 
 #include <EEPROM.h>
 //required for MQTT
@@ -112,9 +116,20 @@ void callback(char* topic, byte* payload, unsigned int length) {
         sendSomfyStatus();
     }
     else if (!strcmp(cmnd, "reset")) {
-        Serial.print("Received reset command");
+        Serial.println("Received reset command");
         ESP.reset();
     }
+    else if (!strcmp(cmnd, "code")) {
+      Serial.print("Received new code");
+      unsigned int code;
+      //get code from message
+      code=message.toInt();
+      Serial.println(code);
+      //store in EEPROM and set global var
+      EEPROM.put(EEPROM_ADDRESS, code);
+      rollingCode=code;
+    }
+
 }
 
 void reconnect() {
