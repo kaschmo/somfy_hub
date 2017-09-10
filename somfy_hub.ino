@@ -32,7 +32,7 @@
 #include <ESP8266HTTPUpdateServer.h>
 //end OTA requirements
 
-#define PORT_TX 14 //Sonoff GPIO14.
+#define PORT_TX 14 //Sonoff GPIO14. Use 5 for D1 on NodeMCU
 
 #define SYMBOL 640
 #define HAUT 0x2
