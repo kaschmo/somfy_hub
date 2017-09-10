@@ -25,7 +25,14 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 
-#define PORT_TX 5 //5 of PORTD = DigitalPin 5. GPIO 5 equals D1
+//required for OTA updater
+#include <WiFiClient.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266mDNS.h>
+#include <ESP8266HTTPUpdateServer.h>
+//end OTA requirements
+
+#define PORT_TX 14 //Sonoff GPIO14.
 
 #define SYMBOL 640
 #define HAUT 0x2
@@ -44,11 +51,16 @@ byte checksum;
 //MQTT
 WiFiClient espClient;
 PubSubClient client(espClient);
-const char* inTopic = "cmnd/somfy_hub/#";
-const char* outTopic = "stat/somfy_hub/";
+const char* inTopic = "cmnd/somfy_hub_sonoff/#";
+const char* outTopic = "stat/somfy_hub_sonoff/";
 
+//publicate functions
 void BuildFrame(byte *frame, byte button);
 void SendCommand(byte *frame, byte sync);
+
+//OTA
+ESP8266WebServer httpServer(80);
+ESP8266HTTPUpdateServer httpUpdater;
 
 void setup_wifi() {
     delay(10);
@@ -69,6 +81,10 @@ void setup_wifi() {
     Serial.println("WiFi connected");
     Serial.println("IP address: ");
     Serial.println(WiFi.localIP());
+
+    //OTA
+    httpUpdater.setup(&httpServer);
+    httpServer.begin();
 }
 
 //callback function for MQTT client
@@ -129,6 +145,10 @@ void callback(char* topic, byte* payload, unsigned int length) {
       EEPROM.put(EEPROM_ADDRESS, code);
       rollingCode=code;
     }
+    else if (!strcmp(cmnd, "status")) {
+      Serial.println("Printing status");
+      sendSomfyStatus();
+    }
 
 }
 
@@ -137,7 +157,7 @@ void reconnect() {
     while (!client.connected()) {
       Serial.print("Attempting MQTT connection...");
       // Attempt to connect
-      if (client.connect("SOMFY_HUB")) {
+      if (client.connect("SOMFY_HUB_SONOFF")) {
         Serial.println("connected");        
         client.publish(outTopic, "Somfy Hub booted");        
         // ... and resubscribe
@@ -204,11 +224,13 @@ void setup() {
 }
 
 void loop() {
-    if (!client.connected()) {
-        reconnect();
-      }
-      client.loop();
-      
+  if (!client.connected()) {
+      reconnect();
+    }
+    client.loop();
+
+  //http Updater for OTA
+  httpServer.handleClient(); 
 }
 
 
